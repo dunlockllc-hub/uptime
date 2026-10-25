@@ -1,0 +1,92 @@
+name: Uptime
+
+# An outside "is it up?" check for the public sites on one web server. It runs
+# on GitHub, not on that server, so it still fires when the server itself dies.
+# A failed run makes GitHub email the repo owner.
+#
+# This repo is PUBLIC on purpose: Actions minutes are free on public repos.
+# Nothing here may ever hold a secret, a private hostname or an IP address.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      extra_url:
+        description: 'Extra URL to check (use a deliberately bad one to prove the alarm goes red)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check every public site on the VPS
+        env:
+          EXTRA_URL: ${{ inputs.extra_url }}
+        run: |
+          set -u
+          # url|accepted status codes. 2xx/3xx is "up"; the two sites behind a
+          # password answer 401, which still proves Caddy and the box are alive.
+          # One line per public site; add a line when a site is added.
+          SITES='
+          https://driveway.taskwell360.com/|2xx3xx
+          https://sandbox.driveway.taskwell360.com/|2xx3xx
+          https://hub.taskwell360.com/|2xx3xx
+          https://app.palmstateproperty.com/|2xx3xx
+          https://voicebot.taskwell360.com/health|2xx3xx
+          https://grateful.taskwell360.com/|2xx3xx
+          https://taskwell360.com/|2xx3xx
+          https://www.taskwell360.com/|2xx3xx
+          https://meridian.taskwell360.com/|2xx3xx
+          https://familytable.taskwell360.com/|2xx3xx
+          https://flipscout.taskwell360.com/|2xx3xx
+          https://venture.taskwell360.com/|2xx3xx
+          https://studyguide.taskwell360.com/|2xx3xx
+          https://clock.taskwell360.com/|2xx3xx
+          https://beam.taskwell360.com/|2xx3xx
+          https://performance.taskwell360.com/|2xx3xx
+          https://dashboard.taskwell360.com/|401
+          https://leads.taskwell360.com/|401
+          '
+          if [ -n "${EXTRA_URL:-}" ]; then SITES="$SITES
+          ${EXTRA_URL}|2xx3xx"; fi
+
+          ok() { # code accepted
+            case "$2" in
+              2xx3xx) [ "$1" -ge 200 ] && [ "$1" -lt 400 ] ;;
+              *) [ "$1" = "$2" ] ;;
+            esac
+          }
+          probe() { curl -s -o /dev/null -m 20 --connect-timeout 10 -w '%{http_code}' "$1" || true; }
+
+          down=0
+          while IFS='|' read -r url want; do
+            url=$(echo "$url" | xargs); [ -n "$url" ] || continue
+            code=$(probe "$url"); code=${code:-000}
+            if ! ok "$code" "$want"; then
+              sleep 20
+              code2=$(probe "$url"); code2=${code2:-000}
+              if ok "$code2" "$want"; then
+                echo "OK    $url ($code, then $code2 on retry)"
+              else
+                echo "::error title=Site down::$url answered $code, then $code2 on retry"
+                down=$((down+1))
+              fi
+            else
+              echo "OK    $url ($code)"
+            fi
+          done <<EOF
+          $SITES
+          EOF
+
+          echo "down=$down"
+          [ "$down" -eq 0 ]

@@ -29,7 +29,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v4
+
+      # Reads the VALUES, not just the status: Driveway's /api/health answers 200
+      # even when the database is down or last night's backup is missing. Runs
+      # before the site list so a down site cannot hide it (both steps always run).
+      - name: Driveway health values (ok and backupFresh)
+        if: always()
+        run: bash scripts/check-health.sh https://driveway.taskwell360.com/api/health
+
       - name: Check every public site on the VPS
+        if: always()
         env:
           EXTRA_URL: ${{ inputs.extra_url }}
         run: |

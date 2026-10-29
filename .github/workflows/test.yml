@@ -1,0 +1,19 @@
+name: Test
+
+# Proves check-health.sh fails on every unhealthy answer, using saved answers
+# only. It never calls a live site.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash tests/check-health.test.sh
